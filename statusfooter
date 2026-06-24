@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""statusfooter — Claude Code status line for Volcengine Ark Coding Plan."""
+
+from __future__ import annotations
+
+import sys
+
+
+def progress_bar(percent: float) -> str:
+    if percent < 33:
+        return "░░░"
+    if percent < 67:
+        return "▓░░"
+    if percent < 100:
+        return "▓▓░"
+    return "▓▓▓"
+
+def format_countdown(seconds: int) -> str:
+    if seconds <= 0:
+        return "0m"
+    if seconds < 60:
+        return "<1m"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds < 86400:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h}h{m}m"
+    if seconds < 7 * 86400:
+        d = seconds // 86400
+        h = (seconds % 86400) // 3600
+        return f"{d}d{h}h"
+    return f"{seconds // 86400}d"
+
+def colorize(text: str, percent: float) -> str:
+    if percent >= 80:
+        return f"\033[31m{text}\033[0m"
+    if percent >= 60:
+        return f"\033[33m{text}\033[0m"
+    return text
+
+LEVEL_TO_LABEL = {"session": "5h", "weekly": "W", "monthly": "M"}
+LABEL_ORDER = ["5h", "W", "M"]
+
+
+def render(result: dict, now: int, stale: bool, model_name: str | None = None) -> str:
+    status = result.get("Status", "")
+    if status != "Running":
+        return f"statusfooter: status={status}"
+
+    by_label = {}
+    for entry in result.get("QuotaUsage", []):
+        label = LEVEL_TO_LABEL.get(entry.get("Level"))
+        if label is None:
+            continue
+        by_label[label] = entry
+
+    parts = []
+    countdowns = []
+    for label in LABEL_ORDER:
+        entry = by_label.get(label)
+        if entry is None:
+            continue
+        pct_raw = entry.get("Percent", 0)
+        pct = round(pct_raw)
+        bar = progress_bar(pct_raw)
+        segment = f"{label} {pct}% {bar}"
+        parts.append(colorize(segment, pct_raw))
+
+        reset_ts = entry.get("ResetTimestamp", now)
+        countdowns.append(f"{label} {format_countdown(reset_ts - now)}")
+
+    if not parts:
+        return "statusfooter: bad resp"
+
+    line = "  ".join(parts)
+    if countdowns:
+        countdowns[0] = "↻" + countdowns[0]
+        line = f"{line}  " + "  ".join(countdowns)
+
+    if stale:
+        line = f"{line} ⚠"
+    if model_name:
+        line = f"{model_name}  {line}"
+    return line
+
+
+import hashlib
+import hmac
+import datetime as _dt
+
+
+def _hmac_sha256(key: bytes, data: str) -> bytes:
+    return hmac.new(key, data.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _hex_sha256(data: str) -> str:
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def sign_request(ak: str, sk: str, body: str, now: _dt.datetime,
+                 action: str, version: str, host: str,
+                 region: str, service: str) -> dict:
+    x_date = now.strftime("%Y%m%dT%H%M%SZ")
+    short_date = now.strftime("%Y%m%d")
+    body_hash = _hex_sha256(body)
+
+    canonical_query = f"Action={action}&Version={version}"
+    signed_headers = "content-type;host;x-content-sha256;x-date"
+    canonical_headers = (
+        f"content-type:application/json\n"
+        f"host:{host}\n"
+        f"x-content-sha256:{body_hash}\n"
+        f"x-date:{x_date}\n"
+    )
+    canonical_request = "\n".join([
+        "POST", "/", canonical_query, canonical_headers, signed_headers, body_hash
+    ])
+    credential_scope = f"{short_date}/{region}/{service}/request"
+    string_to_sign = "\n".join([
+        "HMAC-SHA256", x_date, credential_scope, _hex_sha256(canonical_request)
+    ])
+
+    k_date = _hmac_sha256(sk.encode("utf-8"), short_date)
+    k_region = _hmac_sha256(k_date, region)
+    k_service = _hmac_sha256(k_region, service)
+    k_signing = _hmac_sha256(k_service, "request")
+    signature = hmac.new(k_signing, string_to_sign.encode("utf-8"),
+                         hashlib.sha256).hexdigest()
+
+    return {
+        "Content-Type": "application/json",
+        "Host": host,
+        "X-Date": x_date,
+        "X-Content-Sha256": body_hash,
+        "Authorization": (
+            f"HMAC-SHA256 Credential={ak}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        ),
+    }
+
+
+import urllib.request
+import urllib.error
+import json as _json
+
+
+HOST = "open.volcengineapi.com"
+ACTION = "GetCodingPlanUsage"
+VERSION = "2024-01-01"
+REGION = "cn-beijing"
+SERVICE = "ark"
+
+
+class FetchError(Exception):
+    pass
+
+
+def fetch_quota_usage(ak: str, sk: str) -> dict:
+    body = "{}"
+    headers = sign_request(
+        ak=ak, sk=sk, body=body, now=_dt.datetime.utcnow(),
+        action=ACTION, version=VERSION, host=HOST,
+        region=REGION, service=SERVICE,
+    )
+    url = f"https://{HOST}/?Action={ACTION}&Version={VERSION}"
+    req = urllib.request.Request(url, data=body.encode("utf-8"),
+                                 headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as e:
+        raise FetchError(str(e)) from e
+
+    if "Result" not in payload:
+        raise FetchError(f"unexpected response: {payload}")
+    return payload["Result"]
+
+
+import os
+import tempfile
+
+
+def read_cache(path) -> dict | None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return _json.load(f)
+    except (FileNotFoundError, _json.JSONDecodeError):
+        return None
+
+
+def write_cache_atomic(path, payload: dict) -> None:
+    path = str(path)
+    dir_ = os.path.dirname(path) or "."
+    os.makedirs(dir_, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=dir_, prefix=".cache.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            _json.dump(payload, f)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def cached_fetch(config: dict, cache_path, now: float) -> tuple[dict, bool]:
+    """Return (result_dict, is_stale).
+
+    Cache hit (mtime within ttl) -> cached result, stale=False.
+    Cache miss -> fetch, write cache, stale=False.
+    Fetch fails with stale cache present -> return stale cache, stale=True.
+    Fetch fails with no cache -> raise FetchError.
+    """
+    ttl = config.get("cache_ttl", 60)
+    cache_path = str(cache_path)
+    cached = read_cache(cache_path)
+    fresh = False
+    if cached is not None and os.path.exists(cache_path):
+        mtime = os.path.getmtime(cache_path)
+        if now - mtime < ttl:
+            fresh = True
+
+    if fresh:
+        return cached, False
+
+    try:
+        result = fetch_quota_usage(config["ak"], config["sk"])
+        write_cache_atomic(cache_path, result)
+        return result, False
+    except FetchError:
+        if cached is not None:
+            return cached, True
+        raise
+
+
+class ConfigError(Exception):
+    pass
+
+
+def load_config(path) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+    except (FileNotFoundError, _json.JSONDecodeError) as e:
+        raise ConfigError(str(e)) from e
+    for key in ("ak", "sk"):
+        if not data.get(key):
+            raise ConfigError(f"missing required key: {key}")
+    data.setdefault("cache_ttl", 60)
+    return data
+
+
+import time as _time
+
+
+CONFIG_PATH = os.path.expanduser("~/.config/statusfooter/config.json")
+CACHE_PATH = os.path.expanduser("~/.cache/statusfooter/usage.json")
+
+
+def read_stdin_model_name(stream) -> str | None:
+    try:
+        raw = stream.read()
+    except Exception:
+        return None
+    if not raw or not raw.strip():
+        return None
+    try:
+        data = _json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    model = data.get("model")
+    if not isinstance(model, dict):
+        return None
+    name = model.get("display_name")
+    if isinstance(name, str) and name:
+        return name
+    return None
+
+
+def main() -> int:
+    try:
+        try:
+            config = load_config(CONFIG_PATH)
+        except ConfigError:
+            print("statusfooter: missing config")
+            return 0
+
+        model_name = None
+        try:
+            if not sys.stdin.isatty():
+                model_name = read_stdin_model_name(sys.stdin)
+        except Exception:
+            model_name = None
+
+        try:
+            result, stale = cached_fetch(config, CACHE_PATH, now=_time.time())
+        except FetchError:
+            print("statusfooter: net err")
+            return 0
+
+        try:
+            line = render(result, now=int(_time.time()), stale=stale, model_name=model_name)
+        except Exception:
+            print("statusfooter: bad resp")
+            return 0
+
+        print(line)
+        return 0
+    except Exception:
+        print("statusfooter: err")
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
