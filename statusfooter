@@ -42,22 +42,35 @@ def colorize(text: str, percent: float) -> str:
 LEVEL_TO_LABEL = {"session": "5h", "weekly": "W", "monthly": "M"}
 LABEL_ORDER = ["5h", "W", "M"]
 
+# Per-provider label overrides: provider_name → {level: label}
+PROVIDER_LABELS = {
+    "minimax": {"session": "4h", "weekly": "W"},
+}
+PROVIDER_ORDER = {
+    "minimax": ["4h", "W"],
+}
 
-def render(result: dict, now: int, stale: bool, model_name: str | None = None) -> str:
+
+def render(result: dict, now: int, stale: bool, model_name: str | None = None,
+           provider: str = "volcengine_ark") -> str:
+    label_map = PROVIDER_LABELS.get(provider, LEVEL_TO_LABEL)
+    order = PROVIDER_ORDER.get(provider, LABEL_ORDER)
+
     status = result.get("Status", "")
     if status != "Running":
         return f"statusfooter: status={status}"
 
     by_label = {}
     for entry in result.get("QuotaUsage", []):
-        label = LEVEL_TO_LABEL.get(entry.get("Level"))
+        level = entry.get("Level")
+        label = label_map.get(level)
         if label is None:
             continue
         by_label[label] = entry
 
     parts = []
     countdowns = []
-    for label in LABEL_ORDER:
+    for label in order:
         entry = by_label.get(label)
         if entry is None:
             continue
@@ -156,7 +169,9 @@ class FetchError(Exception):
     pass
 
 
-def fetch_quota_usage(ak: str, sk: str) -> dict:
+def fetch_volcengine_ark(config: dict, now: float) -> dict:
+    ak = config["ak"]
+    sk = config["sk"]
     body = "{}"
     headers = sign_request(
         ak=ak, sk=sk, body=body, now=_dt.datetime.utcnow(),
@@ -175,6 +190,62 @@ def fetch_quota_usage(ak: str, sk: str) -> dict:
     if "Result" not in payload:
         raise FetchError(f"unexpected response: {payload}")
     return payload["Result"]
+
+
+_MINIMAX_URL = "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"
+_MINIMAX_MODEL = "general"  # 跳过 video
+
+
+def fetch_minimax(config: dict, now: float) -> dict:
+    api_key = config.get("minimax_api_key", "")
+    if not api_key:
+        raise FetchError("missing minimax_api_key")
+    url = _MINIMAX_URL
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as e:
+        raise FetchError(str(e)) from e
+
+    base_resp = payload.get("base_resp", {})
+    if base_resp.get("status_code", 0) != 0:
+        raise FetchError(f"MiniMax: {base_resp.get('status_msg', 'unknown')}")
+
+    quota = []
+    for entry in payload.get("model_remains", []):
+        if entry.get("model_name") != _MINIMAX_MODEL:
+            continue
+        # 4h 窗口
+        interval_pct = entry.get("current_interval_remaining_percent", 0)
+        remains_s = entry.get("remains_time", 0)
+        quota.append({
+            "Level": "session",
+            "Percent": interval_pct,
+            "ResetTimestamp": int(now + remains_s),
+        })
+        # 周窗口
+        weekly_pct = entry.get("current_weekly_remaining_percent", 0)
+        weekly_remains_s = entry.get("weekly_remains_time", 0)
+        quota.append({
+            "Level": "weekly",
+            "Percent": weekly_pct,
+            "ResetTimestamp": int(now + weekly_remains_s),
+        })
+
+    if not quota:
+        raise FetchError("MiniMax: no general model_remains found")
+    return {"Status": "Running", "QuotaUsage": quota}
+
+
+PROVIDERS: dict[str, callable] = {
+    "volcengine_ark": fetch_volcengine_ark,
+    "minimax": fetch_minimax,
+}
 
 
 import os
@@ -206,7 +277,7 @@ def write_cache_atomic(path, payload: dict) -> None:
         raise
 
 
-def cached_fetch(config: dict, cache_path, now: float) -> tuple[dict, bool]:
+def cached_fetch(config: dict, cache_path, now: float, fetch_fn) -> tuple[dict, bool]:
     """Return (result_dict, is_stale).
 
     Cache hit (mtime within ttl) -> cached result, stale=False.
@@ -227,7 +298,7 @@ def cached_fetch(config: dict, cache_path, now: float) -> tuple[dict, bool]:
         return cached, False
 
     try:
-        result = fetch_quota_usage(config["ak"], config["sk"])
+        result = fetch_fn(config, now)
         write_cache_atomic(cache_path, result)
         return result, False
     except FetchError:
@@ -246,10 +317,26 @@ def load_config(path) -> dict:
             data = _json.load(f)
     except (FileNotFoundError, _json.JSONDecodeError) as e:
         raise ConfigError(str(e)) from e
+
+    # New format: {"active": "minimax", "providers": {...}}
+    providers = data.get("providers")
+    if providers:
+        active = data.get("active", "volcengine_ark")
+        provider_cfg = providers.get(active)
+        if provider_cfg is None:
+            raise ConfigError(f"no config for active provider={active}")
+        # Flatten provider config + keep global fields
+        merged = dict(provider_cfg)
+        merged.setdefault("cache_ttl", data.get("cache_ttl", 60))
+        merged["_provider"] = active
+        return merged
+
+    # Old format: flat {"ak": ..., "sk": ...}
     for key in ("ak", "sk"):
         if not data.get(key):
             raise ConfigError(f"missing required key: {key}")
     data.setdefault("cache_ttl", 60)
+    data["_provider"] = "volcengine_ark"
     return data
 
 
@@ -290,6 +377,13 @@ def main() -> int:
             print("statusfooter: missing config")
             return 0
 
+        provider_name = config.get("_provider", "volcengine_ark")
+        fetch_fn_name = f"fetch_{provider_name}"
+        fetch_fn = globals().get(fetch_fn_name)
+        if fetch_fn is None:
+            print(f"statusfooter: unknown provider={provider_name}")
+            return 0
+
         model_name = None
         try:
             if not sys.stdin.isatty():
@@ -298,13 +392,15 @@ def main() -> int:
             model_name = None
 
         try:
-            result, stale = cached_fetch(config, CACHE_PATH, now=_time.time())
+            result, stale = cached_fetch(config, CACHE_PATH, now=_time.time(),
+                                         fetch_fn=fetch_fn)
         except FetchError:
             print("statusfooter: net err")
             return 0
 
         try:
-            line = render(result, now=int(_time.time()), stale=stale, model_name=model_name)
+            line = render(result, now=int(_time.time()), stale=stale,
+                          model_name=model_name, provider=provider_name)
         except Exception:
             print("statusfooter: bad resp")
             return 0

@@ -38,7 +38,7 @@ def test_main_renders_normal(monkeypatch, tmp_path, capsys):
             {"Level": "monthly", "Percent": 31, "ResetTimestamp": int(time.time()) + 2256923},
         ],
     }
-    monkeypatch.setattr(sf, "fetch_quota_usage", lambda ak, sk: fake_result)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", lambda config, now: fake_result)
 
     rc = sf.main()
     out = capsys.readouterr().out
@@ -53,10 +53,10 @@ def test_main_net_error_no_cache(monkeypatch, tmp_path, capsys):
     _set_paths(monkeypatch, tmp_path)
     (tmp_path / "config.json").write_text('{"ak":"A","sk":"S"}')
 
-    def fail(ak, sk):
+    def fail(config, now):
         raise sf.FetchError("boom")
 
-    monkeypatch.setattr(sf, "fetch_quota_usage", fail)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", fail)
 
     rc = sf.main()
     out = capsys.readouterr().out
@@ -110,7 +110,7 @@ def test_main_uses_stdin_model_prefix(monkeypatch, tmp_path, capsys):
             {"Level": "session", "Percent": 25, "ResetTimestamp": int(time.time()) + 4770},
         ],
     }
-    monkeypatch.setattr(sf, "fetch_quota_usage", lambda ak, sk: fake_result)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", lambda config, now: fake_result)
     monkeypatch.setattr(sys, "stdin", io.StringIO(
         '{"model": {"id": "glm-5.1", "display_name": "GLM-5.1"}}'
     ))

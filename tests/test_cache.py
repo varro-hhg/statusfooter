@@ -55,7 +55,7 @@ def test_cached_fetch_hit(tmp_path, monkeypatch):
     def should_not_call(*a, **k):
         raise AssertionError("fetch should not be called on cache hit")
 
-    monkeypatch.setattr(sf, "fetch_quota_usage", should_not_call)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", should_not_call)
     config = {"ak": "AK", "sk": "SK", "cache_ttl": 60}
     result, stale = sf.cached_fetch(config, cache_path, now=time.time())
     assert result == SAMPLE_RESULT
@@ -66,10 +66,10 @@ def test_cached_fetch_miss_calls_api(tmp_path, monkeypatch):
     cache_path = tmp_path / "cache.json"
     NEW_RESULT = {"Status": "Running", "QuotaUsage": []}
 
-    def fake_fetch(ak, sk):
+    def fake_fetch(config, now):
         return NEW_RESULT
 
-    monkeypatch.setattr(sf, "fetch_quota_usage", fake_fetch)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", fake_fetch)
     config = {"ak": "AK", "sk": "SK", "cache_ttl": 60}
     result, stale = sf.cached_fetch(config, cache_path, now=time.time())
     assert result == NEW_RESULT
@@ -84,7 +84,7 @@ def test_cached_fetch_expired(tmp_path, monkeypatch):
     os.utime(cache_path, (old, old))
 
     NEW_RESULT = {"Status": "Running", "QuotaUsage": []}
-    monkeypatch.setattr(sf, "fetch_quota_usage", lambda ak, sk: NEW_RESULT)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", lambda config, now: NEW_RESULT)
 
     config = {"ak": "AK", "sk": "SK", "cache_ttl": 60}
     result, stale = sf.cached_fetch(config, cache_path, now=time.time())
@@ -98,10 +98,10 @@ def test_cached_fetch_api_fails_uses_stale(tmp_path, monkeypatch):
     old = time.time() - 3600
     os.utime(cache_path, (old, old))
 
-    def fail(ak, sk):
+    def fail(config, now):
         raise sf.FetchError("network down")
 
-    monkeypatch.setattr(sf, "fetch_quota_usage", fail)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", fail)
     config = {"ak": "AK", "sk": "SK", "cache_ttl": 60}
     result, stale = sf.cached_fetch(config, cache_path, now=time.time())
     assert result == SAMPLE_RESULT
@@ -111,10 +111,10 @@ def test_cached_fetch_api_fails_uses_stale(tmp_path, monkeypatch):
 def test_cached_fetch_api_fails_no_cache(tmp_path, monkeypatch):
     cache_path = tmp_path / "no_cache.json"
 
-    def fail(ak, sk):
+    def fail(config, now):
         raise sf.FetchError("network down")
 
-    monkeypatch.setattr(sf, "fetch_quota_usage", fail)
+    monkeypatch.setattr(sf, "fetch_volcengine_ark", fail)
     config = {"ak": "AK", "sk": "SK", "cache_ttl": 60}
     with pytest.raises(sf.FetchError):
         sf.cached_fetch(config, cache_path, now=time.time())

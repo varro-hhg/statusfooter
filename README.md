@@ -138,6 +138,8 @@ Created: /home/YOU/.config/statusfooter/config.json  (chmod 600)
 
 编辑 `~/.config/statusfooter/config.json`：
 
+**火山方舟（兼容旧格式）：**
+
 ```json
 {
   "ak": "AKLT...",
@@ -146,10 +148,44 @@ Created: /home/YOU/.config/statusfooter/config.json  (chmod 600)
 }
 ```
 
+**MiniMax Coding Plan（新格式）：**
+
+```json
+{
+  "active": "minimax",
+  "cache_ttl": 60,
+  "providers": {
+    "minimax": {
+      "minimax_api_key": "sk-cp-..."
+    }
+  }
+}
+```
+
+**多 Provider 共存：**
+
+```json
+{
+  "active": "minimax",
+  "cache_ttl": 60,
+  "providers": {
+    "minimax": {
+      "minimax_api_key": "sk-cp-..."
+    },
+    "volcengine_ark": {
+      "ak": "AKLT...",
+      "sk": "TVdK..."
+    }
+  }
+}
+```
+
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `ak` | ✅ | 火山引擎 AccessKey ID |
-| `sk` | ✅ | 火山引擎 Secret Access Key |
+| `ak` | ✅（旧格式） | 火山引擎 AccessKey ID |
+| `sk` | ✅（旧格式） | 火山引擎 Secret Access Key |
+| `active` | ✅（新格式） | 当前激活的 provider：`volcengine_ark` 或 `minimax` |
+| `minimax_api_key` | ✅（MiniMax） | MiniMax Coding Plan API Key |
 | `cache_ttl` | ❌ | 缓存秒数，默认 60，可改更小（更新更快）或更大（API 调用更少） |
 
 确认权限：
@@ -222,8 +258,15 @@ claude
                                    └ 该百分比触发了黄色染色（77% ≥ 60%）
 ```
 
+MiniMax Coding Plan 输出示例（4h + 周窗口，无月窗口）：
+
+```
+4h 68% ▓▓░  W 57% ▓░░  ↻4h 1h0m  W 4d0h
+```
+
 | 元素 | 规则 |
 |---|---|
+| 标签 | 火山方舟：`5h`=5小时 / `W`=周 / `M`=月；MiniMax：`4h`=4小时 / `W`=周 |
 | 进度条 | `░░░` <33% / `▓░░` <67% / `▓▓░` <100% / `▓▓▓` ≥100% |
 | 颜色 | <60% 默认 / 60–80% 黄 / ≥80% 红（仅染色百分比+进度条段，不染倒计时） |
 | 倒计时格式 | `<1m` / `45m` / `1h19m` / `2d3h` / `26d` / `0m`（已过期） |
@@ -317,7 +360,7 @@ cd statusfooter
 python3 -m pytest -v
 ```
 
-期望：**53 passed**，跑完 < 0.1s。
+期望：**66 passed**，跑完 < 0.1s。
 
 完整文档：
 
@@ -341,7 +384,6 @@ python3 -m pytest -v
 
 | 项 | 说明 |
 |---|---|
-| 当前仅支持火山方舟 Coding Plan | 多 provider 已在路线图，见 [§十一 开发计划](#十一开发计划) |
 | 缓存命中 ~75ms | Python 进程冷启占大头；状态栏体感无感知 |
 | `datetime.utcnow()` Deprecation | Python 3.12+ 会抛 DeprecationWarning，stderr 被丢弃所以状态栏不受影响 |
 
@@ -369,11 +411,12 @@ GLM-5.1  5h 32% ░░░  W 6% ░░░  M 45% ▓░░  ↻5h 1h51m  W 6d1h 
 
 ### 2. 支持其他 Coding Plan / Provider
 
-目前硬编码了火山方舟的 `GetCodingPlanUsage`。计划抽象出一个 **provider 接口**，让用户按需启用：
+目前已抽象出 **provider 接口**，支持多平台：
 
 | Provider | API | 状态 |
 |---|---|---|
 | 火山方舟 | `GetCodingPlanUsage` | ✅ 已支持 |
+| MiniMax | `/v1/api/openplatform/coding_plan/remains` | ✅ 已支持 |
 | Anthropic 官方 | usage API（待调研） | 📋 路线图 |
 | 智谱 BigModel | （待调研） | 📋 路线图 |
 | OpenRouter | `/api/v1/auth/key` | 📋 路线图 |
@@ -422,8 +465,8 @@ glm-5.1     5h 44% ▓░░  W 77% ▓▓░  M 39% ▓░░  ↻5h 4h35m  ←
 ### 路线图优先级
 
 - **P0** ✅ 已上线（2026-06-15）：模型名前缀显示 — 改动最小，价值最直接
-- **P1**（下一版）：多 provider 抽象层 — 需要先调研其他 provider 的 usage API
-- **P2**：自动识别 — P0 已就绪（拿到模型名），等 P1 多 provider 落地后即可启动
+- **P1** ✅ 已上线（2026-06-24）：多 provider 抽象层 — 火山方舟 + MiniMax
+- **P2**（下一版）：自动识别模型/provider — P0 已就绪（拿到模型名），等更多 provider 落地后即可启动
 
 每一步都保持**单文件 + 零依赖 + 永远 exit 0** 这三条核心约束。
 

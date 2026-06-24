@@ -69,7 +69,7 @@ class _FakeResponse:
     def __exit__(self, *a): pass
 
 
-def test_fetch_quota_usage_success(monkeypatch):
+def test_fetch_volcengine_ark_success(monkeypatch):
     captured = {}
 
     def fake_urlopen(req, timeout=20):
@@ -91,7 +91,7 @@ def test_fetch_quota_usage_success(monkeypatch):
 
     monkeypatch.setattr(sf.urllib.request, "urlopen", fake_urlopen)
 
-    result = sf.fetch_quota_usage("AK_X", "SK_X")
+    result = sf.fetch_volcengine_ark({"ak": "AK_X", "sk": "SK_X"}, 0)
     assert result["Status"] == "Running"
     assert result["QuotaUsage"][0]["Level"] == "session"
     assert "Action=GetCodingPlanUsage" in captured["url"]
@@ -99,7 +99,7 @@ def test_fetch_quota_usage_success(monkeypatch):
     assert captured["body"] == b"{}"
 
 
-def test_fetch_quota_usage_http_error(monkeypatch):
+def test_fetch_volcengine_ark_http_error(monkeypatch):
     import urllib.error
 
     def fake_urlopen(req, timeout=20):
@@ -110,4 +110,4 @@ def test_fetch_quota_usage_http_error(monkeypatch):
 
     import pytest
     with pytest.raises(sf.FetchError):
-        sf.fetch_quota_usage("AK", "SK")
+        sf.fetch_volcengine_ark({"ak": "AK", "sk": "SK"}, 0)
