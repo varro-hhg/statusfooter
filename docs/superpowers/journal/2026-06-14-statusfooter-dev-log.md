@@ -93,13 +93,15 @@ statusLine 命令失败会让 Claude Code 状态栏空白甚至报警。`main()`
 |---|---|
 | `progress_bar(p)` | 3 格进度条（边界 33/67/100） |
 | `format_countdown(s)` | `<1m` / `45m` / `1h19m` / `2d3h` / `26d` |
-| `colorize(text, p)` | 60% 黄、80% 红 |
-| `render(result, now, stale)` | 装配最终行 |
+| `colorize(text, p)` | 已用语义：60% 黄、80% 红（火山方舟） |
+| `colorize_remaining(text, p)` | 剩余语义：≤40% 黄、≤20% 红（MiniMax） |
+| `render(result, now, stale)` | 装配最终行，按 provider 选着色函数 |
 | `sign_request(...)` | 火山 V4 签名（纯函数，可测） |
-| `fetch_quota_usage(ak, sk)` | HTTP POST + 解析 |
+| `fetch_volcengine_ark(config, now)` | 火山方舟 HTTP POST + 解析 |
+| `fetch_minimax(config, now)` | MiniMax HTTP GET + 解析（剩余额度） |
 | `read_cache` / `write_cache_atomic` | 缓存读写（temp + rename 原子写） |
 | `cached_fetch(config, path, now)` | TTL + 过期兜底 |
-| `load_config(path)` | 读 JSON、校验 ak/sk、默认 ttl=60 |
+| `load_config(path)` | 读 JSON、校验 ak/sk/minimax_api_key、默认 ttl=60 |
 | `main()` | 顶层 try/except 兜底，永远 exit 0 |
 
 代码组织上 9 个公开函数 + 2 个异常类，全在一个 287 行的脚本里。Python 3 标准库 only，零依赖。
@@ -151,7 +153,7 @@ statusLine 命令失败会让 Claude Code 状态栏空白甚至报警。`main()`
 | `datetime.utcnow()` deprecation | Python 3.12+ 会发 `DeprecationWarning`。改用 `datetime.now(datetime.UTC)` 但要适配 strftime（aware datetime 会渲染时区后缀） | 低 |
 | 缓存命中 75ms（目标 30ms） | 大头是 Python 进程冷启 + 模块导入开销。要进一步压可以考虑预编译 `.pyc` 或换语言（Go / Rust）。但 Claude Code statusLine 的预算其实是 50ms-cache-budget，不是硬阈值，目前体验流畅。 | 低 |
 | `cache_ttl` 类型未校验 | 配置里写成字符串会在 `cached_fetch` 比较时炸。当前 `main()` 兜底会显示 `statusfooter: err`，不影响 Claude Code | 低 |
-| 仅支持火山方舟 | 不计划做多 provider | YAGNI |
+| 支持火山方舟 + MiniMax | 多 provider 已落地（含 `PROVIDER_REMAINING` 剩余额度语义） |
 
 ---
 
