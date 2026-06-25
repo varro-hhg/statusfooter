@@ -77,11 +77,11 @@ def test_fetch_minimax_success(monkeypatch):
     result = sf.fetch_minimax({"minimax_api_key": "sk-test"}, now)
     assert result["Status"] == "Running"
     assert len(result["QuotaUsage"]) == 2
-    # general: 4h + weekly
+    # general: 4h + weekly (showing remaining balance, not used)
     assert result["QuotaUsage"][0]["Level"] == "session"
-    assert result["QuotaUsage"][0]["Percent"] == 32  # 100 - 68
+    assert result["QuotaUsage"][0]["Percent"] == 68  # remaining_percent directly
     assert result["QuotaUsage"][1]["Level"] == "weekly"
-    assert result["QuotaUsage"][1]["Percent"] == 43  # 100 - 57
+    assert result["QuotaUsage"][1]["Percent"] == 57  # weekly remaining_percent directly
     # video is filtered out
     assert all(e["Level"] in ("session", "weekly") for e in result["QuotaUsage"])
     # URL and auth header
@@ -141,29 +141,30 @@ def test_render_minimax_labels():
     result = {
         "Status": "Running",
         "QuotaUsage": [
-            {"Level": "session", "Percent": 32, "ResetTimestamp": int(time.time()) + 3600},
-            {"Level": "weekly", "Percent": 43, "ResetTimestamp": int(time.time()) + 349000},
+            {"Level": "session", "Percent": 68, "ResetTimestamp": int(time.time()) + 3600},
+            {"Level": "weekly", "Percent": 57, "ResetTimestamp": int(time.time()) + 349000},
         ],
     }
     now = int(time.time())
     out = sf.render(result, now, stale=False, provider="minimax")
-    assert "4h 32% ░░░" in out
-    assert "W 43% ▓░░" in out
+    assert "4h 68% ▓▓░" in out
+    assert "W 57% ▓░░" in out
     assert "↻4h" in out
 
 
 def test_render_minimax_color_thresholds():
+    """For remaining-balance semantics: low remaining = danger (red/yellow)."""
     result = {
         "Status": "Running",
         "QuotaUsage": [
-            {"Level": "session", "Percent": 75, "ResetTimestamp": int(time.time()) + 3600},
-            {"Level": "weekly", "Percent": 85, "ResetTimestamp": int(time.time()) + 349000},
+            {"Level": "session", "Percent": 35, "ResetTimestamp": int(time.time()) + 3600},
+            {"Level": "weekly", "Percent": 15, "ResetTimestamp": int(time.time()) + 349000},
         ],
     }
     now = int(time.time())
     out = sf.render(result, now, stale=False, provider="minimax")
-    assert "\033[33m4h 75% ▓▓░\033[0m" in out  # yellow
-    assert "\033[31mW 85% ▓▓░\033[0m" in out   # red
+    assert "\033[33m4h 35% ▓░░\033[0m" in out  # yellow (≤40, >20)
+    assert "\033[31mW 15% ░░░\033[0m" in out   # red (≤20)
 
 
 def test_render_minimax_fallback_to_default_labels():
