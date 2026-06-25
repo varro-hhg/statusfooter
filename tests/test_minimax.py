@@ -35,7 +35,7 @@ def test_fetch_minimax_success(monkeypatch):
                     "model_name": "general",
                     "start_time": 1782302400000,
                     "end_time": 1782316800000,
-                    "remains_time": 3600,
+                    "remains_time": 3600000,
                     "current_interval_total_count": 100,
                     "current_interval_usage_count": 32,
                     "current_interval_remaining_percent": 68,
@@ -46,14 +46,14 @@ def test_fetch_minimax_success(monkeypatch):
                     "current_weekly_status": 1,
                     "weekly_start_time": 1782057600000,
                     "weekly_end_time": 1782662400000,
-                    "weekly_remains_time": 349000,
+                    "weekly_remains_time": 349000000,
                     "weekly_boost_permille": 1500,
                 },
                 {
                     "model_name": "video",
                     "start_time": 1782302400000,
                     "end_time": 1782316800000,
-                    "remains_time": 3600,
+                    "remains_time": 3600000,
                     "current_interval_total_count": 100,
                     "current_interval_usage_count": 0,
                     "current_interval_remaining_percent": 100,
@@ -64,7 +64,7 @@ def test_fetch_minimax_success(monkeypatch):
                     "current_weekly_status": 3,
                     "weekly_start_time": 1782057600000,
                     "weekly_end_time": 1782662400000,
-                    "weekly_remains_time": 349000,
+                    "weekly_remains_time": 349000000,
                     "weekly_boost_permille": 1500,
                 },
             ],
@@ -79,9 +79,9 @@ def test_fetch_minimax_success(monkeypatch):
     assert len(result["QuotaUsage"]) == 2
     # general: 4h + weekly
     assert result["QuotaUsage"][0]["Level"] == "session"
-    assert result["QuotaUsage"][0]["Percent"] == 68
+    assert result["QuotaUsage"][0]["Percent"] == 32  # 100 - 68
     assert result["QuotaUsage"][1]["Level"] == "weekly"
-    assert result["QuotaUsage"][1]["Percent"] == 57
+    assert result["QuotaUsage"][1]["Percent"] == 43  # 100 - 57
     # video is filtered out
     assert all(e["Level"] in ("session", "weekly") for e in result["QuotaUsage"])
     # URL and auth header
@@ -125,8 +125,8 @@ def test_fetch_minimax_no_general_model(monkeypatch):
             "base_resp": {"status_code": 0, "status_msg": "success"},
             "model_remains": [
                 {"model_name": "video", "current_interval_remaining_percent": 100,
-                 "remains_time": 3600, "current_weekly_remaining_percent": 100,
-                 "weekly_remains_time": 349000},
+                 "remains_time": 3600000, "current_weekly_remaining_percent": 100,
+                 "weekly_remains_time": 349000000},
             ],
         })
         return _FakeResponse(200, body)
@@ -141,14 +141,14 @@ def test_render_minimax_labels():
     result = {
         "Status": "Running",
         "QuotaUsage": [
-            {"Level": "session", "Percent": 68, "ResetTimestamp": int(time.time()) + 3600},
-            {"Level": "weekly", "Percent": 57, "ResetTimestamp": int(time.time()) + 349000},
+            {"Level": "session", "Percent": 32, "ResetTimestamp": int(time.time()) + 3600},
+            {"Level": "weekly", "Percent": 43, "ResetTimestamp": int(time.time()) + 349000},
         ],
     }
     now = int(time.time())
     out = sf.render(result, now, stale=False, provider="minimax")
-    assert "4h 68% ▓▓░" in out
-    assert "W 57% ▓░░" in out
+    assert "4h 32% ░░░" in out
+    assert "W 43% ▓░░" in out
     assert "↻4h" in out
 
 
@@ -227,8 +227,8 @@ def test_main_minimax(monkeypatch, tmp_path, capsys):
     fake_result = {
         "Status": "Running",
         "QuotaUsage": [
-            {"Level": "session", "Percent": 68, "ResetTimestamp": int(now) + 3600},
-            {"Level": "weekly", "Percent": 57, "ResetTimestamp": int(now) + 349000},
+            {"Level": "session", "Percent": 32, "ResetTimestamp": int(now) + 3600},
+            {"Level": "weekly", "Percent": 43, "ResetTimestamp": int(now) + 349000},
         ],
     }
 
@@ -241,8 +241,8 @@ def test_main_minimax(monkeypatch, tmp_path, capsys):
     rc = sf.main()
     out = capsys.readouterr().out
     assert rc == 0
-    assert "4h 68% ▓▓░" in out
-    assert "W 57% ▓░░" in out
+    assert "4h 32% ░░░" in out
+    assert "W 43% ▓░░" in out
     assert "↻4h" in out
 
 

@@ -220,21 +220,21 @@ def fetch_minimax(config: dict, now: float) -> dict:
     for entry in payload.get("model_remains", []):
         if entry.get("model_name") != _MINIMAX_MODEL:
             continue
-        # 4h 窗口
-        interval_pct = entry.get("current_interval_remaining_percent", 0)
-        remains_s = entry.get("remains_time", 0)
+        # 4h 窗口（API 返回毫秒，转为秒；remaining_percent → used_percent）
+        interval_pct = 100 - entry.get("current_interval_remaining_percent", 0)
+        remains_ms = entry.get("remains_time", 0)
         quota.append({
             "Level": "session",
             "Percent": interval_pct,
-            "ResetTimestamp": int(now + remains_s),
+            "ResetTimestamp": int(now + remains_ms / 1000),
         })
         # 周窗口
-        weekly_pct = entry.get("current_weekly_remaining_percent", 0)
-        weekly_remains_s = entry.get("weekly_remains_time", 0)
+        weekly_pct = 100 - entry.get("current_weekly_remaining_percent", 0)
+        weekly_remains_ms = entry.get("weekly_remains_time", 0)
         quota.append({
             "Level": "weekly",
             "Percent": weekly_pct,
-            "ResetTimestamp": int(now + weekly_remains_s),
+            "ResetTimestamp": int(now + weekly_remains_ms / 1000),
         })
 
     if not quota:
