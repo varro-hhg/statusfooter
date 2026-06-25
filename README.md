@@ -253,7 +253,7 @@ claude
 5h 44% ▓░░  W 77% ▓▓░  M 39% ▓░░  ↻5h 4h35m  W 1h11m  M 26d
 └─┬─┘ │  │   │ ↑                  │ └────┬────┘
   │   │  └ 进度条（3 格）          │      │
-  │   └ 已用百分比                  │      │
+  │   └ 百分比（火山=已用，MiniMax=剩余）│      │
   └ 标签：5h=5小时，W=周，M=月      │      └ 倒计时段：到下次清零还剩多久
                                    └ 该百分比触发了黄色染色（77% ≥ 60%）
 ```
@@ -267,8 +267,10 @@ MiniMax Coding Plan 输出示例（4h + 周窗口，无月窗口）：
 | 元素 | 规则 |
 |---|---|
 | 标签 | 火山方舟：`5h`=5小时 / `W`=周 / `M`=月；MiniMax：`4h`=4小时 / `W`=周 |
+| 百分比语义 | 火山方舟 = **已用百分比**（越高越危险）；MiniMax = **剩余额度**（越低越危险） |
 | 进度条 | `░░░` <33% / `▓░░` <67% / `▓▓░` <100% / `▓▓▓` ≥100% |
-| 颜色 | <60% 默认 / 60–80% 黄 / ≥80% 红（仅染色百分比+进度条段，不染倒计时） |
+| 颜色（火山） | <60% 默认 / 60–80% 黄 / ≥80% 红（已用越多越危险） |
+| 颜色（MiniMax） | >40% 默认 / 20–40% 黄 / ≤20% 红（剩余越少越危险） |
 | 倒计时格式 | `<1m` / `45m` / `1h19m` / `2d3h` / `26d` / `0m`（已过期） |
 | 行尾 `⚠` | 数据来自过期缓存（API 失败兜底） |
 | `statusfooter: ...` | 错误降级文本，详见故障排查 |
@@ -384,6 +386,8 @@ python3 -m pytest -v
 
 | 项 | 说明 |
 |---|---|
+| 支持火山方舟 + MiniMax Coding Plan | 多 provider 已落地，详见 [§十一 开发计划](#十一开发计划) |
+| Python ≥ 3.10 | 用了 `dict \| None` 类型注解 |
 | 缓存命中 ~75ms | Python 进程冷启占大头；状态栏体感无感知 |
 | `datetime.utcnow()` Deprecation | Python 3.12+ 会抛 DeprecationWarning，stderr 被丢弃所以状态栏不受影响 |
 
@@ -409,9 +413,9 @@ GLM-5.1  5h 32% ░░░  W 6% ░░░  M 45% ▓░░  ↻5h 1h51m  W 6d1h 
 - 拿不到模型名时（stdin 空、非 JSON、缺字段、手动跑）静默跳过前缀，其他字段照常输出。
 - 提交：`d74c9e6`（render 层支持可选前缀）+ `813f814`（main 读 stdin）。新增 8 个测试，总 53。
 
-### 2. 支持其他 Coding Plan / Provider
+### 2. 支持其他 Coding Plan / Provider ✅ MiniMax 已上线
 
-目前已抽象出 **provider 接口**，支持多平台：
+已抽象出 **provider 接口**（`fetch_*()` 函数 + `PROVIDERS` 注册表），支持：
 
 | Provider | API | 状态 |
 |---|---|---|
@@ -422,22 +426,22 @@ GLM-5.1  5h 32% ░░░  W 6% ░░░  M 45% ▓░░  ↻5h 1h51m  W 6d1h 
 | OpenRouter | `/api/v1/auth/key` | 📋 路线图 |
 | DeepSeek 直连 | `/user/balance` | 📋 路线图 |
 
-**配置示例（设想）：**
+**配置示例（已实现）：**
 
 ```json
 {
-  "providers": [
-    { "type": "volcengine_ark", "ak": "...", "sk": "..." },
-    { "type": "anthropic", "api_key": "..." }
-  ],
-  "active": "volcengine_ark"
+  "active": "minimax",
+  "providers": {
+    "volcengine_ark": { "ak": "...", "sk": "..." },
+    "minimax": { "minimax_api_key": "sk-..." }
+  }
 }
 ```
 
-**实现思路：**
-- 抽出 `Provider` 协议：`fetch_usage() -> dict`
-- 每个 provider 一个文件，主脚本根据 `type` 派发
-- render 层不变（拿到的还是 `Status` / `QuotaUsage` 这种结构），各 provider 负责把自己的 API 响应**翻译**成统一格式
+**实现要点：**
+- `Provider` 协议：`fetch_*(config, now) -> dict`，返回统一的 `Status` / `QuotaUsage` 结构
+- `render()` 根据 `provider` 参数选择标签（5h/W/M vs 4h/W）和颜色语义（已用 vs 剩余）
+- MiniMax 的 `Percent` 表示**剩余额度**（与火山方舟的"已用"语义相反），颜色阈值相应反转
 
 ### 3. 自动识别当前模型 / Coding Plan
 
@@ -465,8 +469,8 @@ glm-5.1     5h 44% ▓░░  W 77% ▓▓░  M 39% ▓░░  ↻5h 4h35m  ←
 ### 路线图优先级
 
 - **P0** ✅ 已上线（2026-06-15）：模型名前缀显示 — 改动最小，价值最直接
-- **P1** ✅ 已上线（2026-06-24）：多 provider 抽象层 — 火山方舟 + MiniMax
-- **P2**（下一版）：自动识别模型/provider — P0 已就绪（拿到模型名），等更多 provider 落地后即可启动
+- **P1** ✅ 已上线（2026-06-24）：多 provider 抽象层 — 火山方舟 + MiniMax 双 provider 支持，含配置加载、剩余额度显示
+- **P2**（下一版）：自动识别模型/provider — P0 已就绪（拿到模型名），P1 多 provider 已落地，可启动
 
 每一步都保持**单文件 + 零依赖 + 永远 exit 0** 这三条核心约束。
 

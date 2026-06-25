@@ -33,11 +33,22 @@ def format_countdown(seconds: int) -> str:
     return f"{seconds // 86400}d"
 
 def colorize(text: str, percent: float) -> str:
+    """Colorize for 'used' semantics: high percent = danger."""
     if percent >= 80:
         return f"\033[31m{text}\033[0m"
     if percent >= 60:
         return f"\033[33m{text}\033[0m"
     return text
+
+
+def colorize_remaining(text: str, percent: float) -> str:
+    """Colorize for 'remaining' semantics: low percent = danger."""
+    if percent <= 20:
+        return f"\033[31m{text}\033[0m"
+    if percent <= 40:
+        return f"\033[33m{text}\033[0m"
+    return text
+
 
 LEVEL_TO_LABEL = {"session": "5h", "weekly": "W", "monthly": "M"}
 LABEL_ORDER = ["5h", "W", "M"]
@@ -49,12 +60,15 @@ PROVIDER_LABELS = {
 PROVIDER_ORDER = {
     "minimax": ["4h", "W"],
 }
+# Providers where Percent represents remaining balance (not used)
+PROVIDER_REMAINING = {"minimax"}
 
 
 def render(result: dict, now: int, stale: bool, model_name: str | None = None,
            provider: str = "volcengine_ark") -> str:
     label_map = PROVIDER_LABELS.get(provider, LEVEL_TO_LABEL)
     order = PROVIDER_ORDER.get(provider, LABEL_ORDER)
+    color_fn = colorize_remaining if provider in PROVIDER_REMAINING else colorize
 
     status = result.get("Status", "")
     if status != "Running":
@@ -78,7 +92,7 @@ def render(result: dict, now: int, stale: bool, model_name: str | None = None,
         pct = round(pct_raw)
         bar = progress_bar(pct_raw)
         segment = f"{label} {pct}% {bar}"
-        parts.append(colorize(segment, pct_raw))
+        parts.append(color_fn(segment, pct_raw))
 
         reset_ts = entry.get("ResetTimestamp", now)
         countdowns.append(f"{label} {format_countdown(reset_ts - now)}")
@@ -220,8 +234,8 @@ def fetch_minimax(config: dict, now: float) -> dict:
     for entry in payload.get("model_remains", []):
         if entry.get("model_name") != _MINIMAX_MODEL:
             continue
-        # 4h 窗口（API 返回毫秒，转为秒；remaining_percent → used_percent）
-        interval_pct = 100 - entry.get("current_interval_remaining_percent", 0)
+        # 4h 窗口（API 返回毫秒，转为秒；显示剩余额度）
+        interval_pct = entry.get("current_interval_remaining_percent", 0)
         remains_ms = entry.get("remains_time", 0)
         quota.append({
             "Level": "session",
@@ -229,7 +243,7 @@ def fetch_minimax(config: dict, now: float) -> dict:
             "ResetTimestamp": int(now + remains_ms / 1000),
         })
         # 周窗口
-        weekly_pct = 100 - entry.get("current_weekly_remaining_percent", 0)
+        weekly_pct = entry.get("current_weekly_remaining_percent", 0)
         weekly_remains_ms = entry.get("weekly_remains_time", 0)
         quota.append({
             "Level": "weekly",

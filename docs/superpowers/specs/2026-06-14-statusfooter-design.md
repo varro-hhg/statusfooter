@@ -2,7 +2,7 @@
 
 ## 一句话目标
 
-在 Claude Code 状态栏底部显示当前火山方舟 Coding Plan 的三个滚动窗口（5 小时 / 周 / 月）已用百分比、进度条、颜色阈值与重置倒计时。
+在 Claude Code 状态栏底部显示当前 Coding Plan 的滚动窗口已用/剩余百分比、进度条、颜色阈值与重置倒计时。支持火山方舟（5h/W/M，已用百分比）和 MiniMax（4h/W，剩余额度）两种 provider。
 
 ## 背景与约束
 
@@ -36,7 +36,7 @@ POST https://open.volcengineapi.com/?Action=GetCodingPlanUsage&Version=2024-01-0
 
 字段语义：
 - `Level: session` = 5 小时滚动窗口（UI 里显示为 `5h`）
-- `Percent` = 已用百分比
+- `Percent` = 百分比（火山方舟=已用百分比；MiniMax=剩余额度，由 `PROVIDER_REMAINING` 标记）
 - `ResetTimestamp` = 该窗口下次清零的 Unix 秒
 
 约束：
