@@ -93,8 +93,8 @@ statusLine 命令失败会让 Claude Code 状态栏空白甚至报警。`main()`
 |---|---|
 | `progress_bar(p)` | 3 格进度条（边界 33/67/100） |
 | `format_countdown(s)` | `<1m` / `45m` / `1h19m` / `2d3h` / `26d` |
-| `colorize(text, p)` | 已用语义：60% 黄、80% 红（火山方舟） |
-| `colorize_remaining(text, p)` | 剩余语义：≤40% 黄、≤20% 红（MiniMax） |
+| `colorize(text, p)` | 已用语义：60% 黄、80% 红（暂未使用） |
+| `colorize_remaining(text, p)` | 剩余语义：≤40% 黄、≤20% 红（火山方舟 + MiniMax） |
 | `render(result, now, stale)` | 装配最终行，按 provider 选着色函数 |
 | `sign_request(...)` | 火山 V4 签名（纯函数，可测） |
 | `fetch_volcengine_ark(config, now)` | 火山方舟 HTTP POST + 解析 |

@@ -128,21 +128,22 @@ def test_render_model_prefix_with_stale():
     assert out.endswith("⚠")
 
 def test_render_color_thresholds():
+    """Volcengine Percent is remaining balance: low = danger."""
     result = {
         "Status": "Running",
         "QuotaUsage": [
             {"Level": "session", "Percent": 50, "ResetTimestamp": NOW + 3600},
-            {"Level": "weekly",  "Percent": 70, "ResetTimestamp": NOW + 3600},
-            {"Level": "monthly", "Percent": 85, "ResetTimestamp": NOW + 3600},
+            {"Level": "weekly",  "Percent": 30, "ResetTimestamp": NOW + 3600},
+            {"Level": "monthly", "Percent": 15, "ResetTimestamp": NOW + 3600},
         ],
     }
     out = sf.render(result, NOW, stale=False)
-    # session 50% → no color
+    # session 50% remaining → no color (safe)
     assert "5h 50% ▓░░" in out
-    # weekly 70% → yellow
-    assert "\033[33mW 70% ▓▓░\033[0m" in out
-    # monthly 85% → red
-    assert "\033[31mM 85% ▓▓░\033[0m" in out
+    # weekly 30% remaining → yellow (≤40)
+    assert "\033[33mW 30% ░░░\033[0m" in out
+    # monthly 15% remaining → red (≤20)
+    assert "\033[31mM 15% ░░░\033[0m" in out
 
 def test_render_unknown_status():
     result = {"Status": "Suspended", "QuotaUsage": []}
