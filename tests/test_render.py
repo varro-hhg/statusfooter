@@ -17,16 +17,19 @@ def test_progress_bar_empty():
     assert sf.progress_bar(0) == "░░░"
 
 def test_progress_bar_low():
-    assert sf.progress_bar(10) == "░░░"
+    # Any non-zero progress shows at least one block
+    assert sf.progress_bar(10) == "▓░░"
 
 def test_progress_bar_one_third_boundary():
     assert sf.progress_bar(33) == "▓░░"
+    assert sf.progress_bar(34) == "▓▓░"
 
 def test_progress_bar_two_thirds_boundary():
-    assert sf.progress_bar(67) == "▓▓░"
+    assert sf.progress_bar(66) == "▓▓░"
+    assert sf.progress_bar(67) == "▓▓▓"
 
 def test_progress_bar_high():
-    assert sf.progress_bar(80) == "▓▓░"
+    assert sf.progress_bar(80) == "▓▓▓"
 
 def test_progress_bar_full():
     assert sf.progress_bar(100) == "▓▓▓"
@@ -35,7 +38,7 @@ def test_progress_bar_overflow():
     assert sf.progress_bar(150) == "▓▓▓"
 
 def test_progress_bar_just_below_full():
-    assert sf.progress_bar(99) == "▓▓░"
+    assert sf.progress_bar(99) == "▓▓▓"
 
 def test_countdown_expired():
     assert sf.format_countdown(0) == "0m"
@@ -96,9 +99,9 @@ NOW = 1781442276  # matches UpdateTimestamp; reset deltas:
 def test_render_normal():
     out = sf.render(SAMPLE_RESULT, NOW, stale=False)
     # Order is always 5h, W, M regardless of API order
-    assert "5h 26% ░░░" in out
-    assert "W 62%" in out  # 61.55 rounds to 62
-    assert "M 31% ░░░" in out
+    assert "5h 26% ▓░░" in out
+    assert "W 62% ▓▓░" in out  # 61.55 rounds to 62
+    assert "M 31% ▓░░" in out
     # countdown segment present in 5h/W/M order
     assert "↻5h 1h19m" in out
     assert "W 2h55m" in out
@@ -114,7 +117,7 @@ def test_render_with_model_prefix():
     out = sf.render(SAMPLE_RESULT, NOW, stale=False, model_name="Sonnet 4.5")
     assert out.startswith("Sonnet 4.5  ")
     # rest of the line is unchanged
-    assert "5h 26% ░░░" in out
+    assert "5h 26% ▓░░" in out
     assert "↻5h 1h19m" in out
 
 def test_render_model_prefix_none_unchanged():
@@ -128,22 +131,22 @@ def test_render_model_prefix_with_stale():
     assert out.endswith("⚠")
 
 def test_render_color_thresholds():
-    """Volcengine Percent is remaining balance: low = danger."""
+    """Volcengine Percent is used percentage: high = danger."""
     result = {
         "Status": "Running",
         "QuotaUsage": [
             {"Level": "session", "Percent": 50, "ResetTimestamp": NOW + 3600},
-            {"Level": "weekly",  "Percent": 30, "ResetTimestamp": NOW + 3600},
-            {"Level": "monthly", "Percent": 15, "ResetTimestamp": NOW + 3600},
+            {"Level": "weekly",  "Percent": 70, "ResetTimestamp": NOW + 3600},
+            {"Level": "monthly", "Percent": 85, "ResetTimestamp": NOW + 3600},
         ],
     }
     out = sf.render(result, NOW, stale=False)
-    # session 50% remaining → no color (safe)
-    assert "5h 50% ▓░░" in out
-    # weekly 30% remaining → yellow (≤40)
-    assert "\033[33mW 30% ░░░\033[0m" in out
-    # monthly 15% remaining → red (≤20)
-    assert "\033[31mM 15% ░░░\033[0m" in out
+    # session 50% used → no color
+    assert "5h 50% ▓▓░" in out
+    # weekly 70% used → yellow (≥60)
+    assert "\033[33mW 70% ▓▓▓\033[0m" in out
+    # monthly 85% used → red (≥80)
+    assert "\033[31mM 85% ▓▓▓\033[0m" in out
 
 def test_render_unknown_status():
     result = {"Status": "Suspended", "QuotaUsage": []}

@@ -2,7 +2,7 @@
 
 ## 一句话目标
 
-在 Claude Code 状态栏底部显示当前 Coding Plan 的滚动窗口剩余额度、进度条、颜色阈值与重置倒计时。支持火山方舟（5h/W/M）和 MiniMax（4h/W）两种 provider，两者的 `Percent` 字段统一为剩余额度语义。
+在 Claude Code 状态栏底部显示当前 Coding Plan 的滚动窗口百分比、进度条、颜色阈值与重置倒计时。支持火山方舟（5h/W/M，已用百分比）和 MiniMax（4h/W，剩余额度）两种 provider；MiniMax 通过 `PROVIDER_REMAINING` 标记走"低=危险"的剩余语义。
 
 ## 背景与约束
 
@@ -36,7 +36,7 @@ POST https://open.volcengineapi.com/?Action=GetCodingPlanUsage&Version=2024-01-0
 
 字段语义：
 - `Level: session` = 5 小时滚动窗口（UI 里显示为 `5h`）
-- `Percent` = **剩余额度**百分比（与 MiniMax 一致；`PROVIDER_REMAINING` 标记所有走剩余语义的 provider）
+- `Percent` = 已用百分比（火山方舟；MiniMax 是剩余额度，由 `PROVIDER_REMAINING` 标记）
 - `ResetTimestamp` = 该窗口下次清零的 Unix 秒
 
 约束：
@@ -157,12 +157,12 @@ print 到 stdout, exit 0
 **百分比**：四舍五入到整数（`round(percent)`）。
 
 **进度条**：3 格定长，规则：
-- `0 ≤ p < 33`：`░░░`
-- `33 ≤ p < 67`：`▓░░`
-- `67 ≤ p < 100`：`▓▓░`
-- `p ≥ 100`：`▓▓▓`
+- `p == 0`：`░░░`（完全空，专留给 0）
+- `0 < p < 34`：`▓░░`
+- `34 ≤ p < 67`：`▓▓░`
+- `p ≥ 67`：`▓▓▓`
 
-> 注：3 格刻意粗糙——状态栏空间紧张，更细的粒度看不出差异。
+> 注：3 格刻意粗糙——状态栏空间紧张，更细的粒度看不出差异。**0 单独处理**（仅当 p=0 显示空进度条），任何非零进度都至少有一格。
 
 **颜色阈值**（每个窗口独立判定，只染色「百分比 + 进度条」段）：
 
