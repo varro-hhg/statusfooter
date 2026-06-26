@@ -61,7 +61,7 @@ PROVIDER_ORDER = {
     "minimax": ["4h", "W"],
 }
 # Providers where Percent represents remaining balance (not used)
-PROVIDER_REMAINING = {"minimax"}
+PROVIDER_REMAINING = {"minimax", "volcengine_ark"}
 
 
 def render(result: dict, now: int, stale: bool, model_name: str | None = None,
