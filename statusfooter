@@ -7,11 +7,11 @@ import sys
 
 
 def progress_bar(percent: float) -> str:
-    if percent < 33:
+    if percent <= 0:
         return "░░░"
-    if percent < 67:
+    if percent < 34:
         return "▓░░"
-    if percent < 100:
+    if percent < 67:
         return "▓▓░"
     return "▓▓▓"
 
@@ -61,7 +61,7 @@ PROVIDER_ORDER = {
     "minimax": ["4h", "W"],
 }
 # Providers where Percent represents remaining balance (not used)
-PROVIDER_REMAINING = {"minimax", "volcengine_ark"}
+PROVIDER_REMAINING = {"minimax"}
 
 
 def render(result: dict, now: int, stale: bool, model_name: str | None = None,

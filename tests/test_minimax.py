@@ -147,8 +147,8 @@ def test_render_minimax_labels():
     }
     now = int(time.time())
     out = sf.render(result, now, stale=False, provider="minimax")
-    assert "4h 68% ▓▓░" in out
-    assert "W 57% ▓░░" in out
+    assert "4h 68% ▓▓▓" in out
+    assert "W 57% ▓▓░" in out
     assert "↻4h" in out
 
 
@@ -163,8 +163,8 @@ def test_render_minimax_color_thresholds():
     }
     now = int(time.time())
     out = sf.render(result, now, stale=False, provider="minimax")
-    assert "\033[33m4h 35% ▓░░\033[0m" in out  # yellow (≤40, >20)
-    assert "\033[31mW 15% ░░░\033[0m" in out   # red (≤20)
+    assert "\033[33m4h 35% ▓▓░\033[0m" in out  # yellow (≤40, >20)
+    assert "\033[31mW 15% ▓░░\033[0m" in out   # red (≤20)
 
 
 def test_render_minimax_fallback_to_default_labels():
@@ -242,8 +242,8 @@ def test_main_minimax(monkeypatch, tmp_path, capsys):
     rc = sf.main()
     out = capsys.readouterr().out
     assert rc == 0
-    assert "4h 32% ░░░" in out
-    assert "W 43% ▓░░" in out
+    assert "4h 32% ▓░░" in out
+    assert "W 43% ▓▓░" in out
     assert "↻4h" in out
 
 
